@@ -4,6 +4,12 @@ const OpenAI = require('openai');
 const path = require('path');
 const fs = require('fs');
 
+// Debug environment variables
+console.log('Environment check:');
+console.log('PORT:', process.env.PORT);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('OPENAI_API_KEY present:', !!process.env.OPENAI_API_KEY);
+
 // Load environment variables from secret file
 const loadEnvFile = () => {
   try {
@@ -18,34 +24,68 @@ const loadEnvFile = () => {
         }
       });
       console.log('Loaded environment variables from secret file');
+    } else {
+      console.log('No secret file found at', secretPath);
     }
   } catch (error) {
-    console.log('No secret file found, using regular environment variables');
+    console.log('Error loading secret file:', error.message);
   }
 };
 
 loadEnvFile();
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'sk-dummy-key' // Fallback for development
-});
+// Initialize OpenAI with better error handling
+let openai;
+try {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || 'sk-dummy-key'
+  });
+  console.log('OpenAI initialized successfully');
+} catch (error) {
+  console.error('OpenAI initialization failed:', error.message);
+}
 
 const app = express();
-app.use(cors());
+
+// CORS configuration - allow all origins for now
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
+
 app.use(express.json());
 
-// Health check endpoint
+// Health check endpoint with more detailed info
 app.get('/api/health', (req, res) => {
   res.json({ 
-    status: 'Server is running with secret files!',
-    hasOpenAIKey: !!process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'sk-dummy-key'
+    status: 'Server is running!',
+    hasOpenAIKey: !!process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'sk-dummy-key',
+    openAIInitialized: !!openai,
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Simple test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    message: 'Test endpoint is working!',
+    success: true
   });
 });
 
 // Evaluation endpoint
 app.post('/api/evaluate', async (req, res) => {
   try {
+    // Check if OpenAI is configured
+    if (!openai) {
+      console.error('OpenAI not configured in /api/evaluate');
+      return res.status(500).json({ 
+        error: 'OpenAI not configured',
+        details: 'API key not available or invalid'
+      });
+    }
+
     const { prompt, userResponse } = req.body;
 
     if (!prompt || !userResponse) {
@@ -53,6 +93,8 @@ app.post('/api/evaluate', async (req, res) => {
         error: 'Prompt and user response are required' 
       });
     }
+
+    console.log('Received evaluation request for prompt:', prompt.substring(0, 50) + '...');
 
     // Create the evaluation prompt for OpenAI
     const evaluationPrompt = `
@@ -91,34 +133,37 @@ app.post('/api/evaluate', async (req, res) => {
       score = parseInt(scoreMatch[1]);
     }
 
+    console.log('Evaluation completed successfully');
+    
     res.json({
       evaluation,
       score,
       prompt,
-      userResponse
+      userResponse,
+      success: true
     });
 
   } catch (error) {
     console.error('OpenAI API error:', error);
     res.status(500).json({ 
       error: 'Failed to evaluate response',
-      details: error.message 
+      details: error.message,
+      success: false
     });
   }
 });
 
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, 'public')));
-  
-  // Handle SPA routing
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-  });
-}
+// Serve static files in both development and production
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Handle SPA routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🔑 OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Loaded' : 'Not found'}`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
 });

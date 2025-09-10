@@ -12,23 +12,21 @@ console.log('OPENAI_API_KEY present:', !!process.env.OPENAI_API_KEY);
 
 // Load environment variables from secret file
 const loadEnvFile = () => {
-  try {
-    // Try to load from Render's secret file location
-    const secretPath = '/etc/secrets/.env';
-    if (fs.existsSync(secretPath)) {
-      const envFile = fs.readFileSync(secretPath, 'utf8');
-      envFile.split('\n').forEach(line => {
-        const [key, value] = line.split('=');
-        if (key && value) {
-          process.env[key.trim()] = value.trim();
-        }
-      });
-      console.log('Loaded environment variables from secret file');
-    } else {
-      console.log('No secret file found at', secretPath);
+  console.log('Checking for secret file...');
+  
+  // Render stores secrets here. Check if it exists.
+  const secretPath = '/etc/secrets/.env';
+  
+  if (fs.existsSync(secretPath)) {
+    console.log('Secret file FOUND at', secretPath);
+    // Instead of reading it manually, let Render inject it
+    // Render automatically makes these available as environment variables
+  } else {
+    console.log('Secret file NOT found at', secretPath);
+    // Check if key is available anyway (Render might have injected it another way)
+    if (process.env.OPENAI_API_KEY) {
+      console.log('But OPENAI_API_KEY was found in process.env');
     }
-  } catch (error) {
-    console.log('Error loading secret file:', error.message);
   }
 };
 
